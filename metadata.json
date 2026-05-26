@@ -1,0 +1,6 @@
+{
+  "name": "Guangdong Mahjong",
+  "description": "Classic offline Cantonese Mahjong game with smart AI opponents.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
