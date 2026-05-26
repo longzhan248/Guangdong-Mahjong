@@ -1,10 +1,13 @@
 package com.example.ui
 
+import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioTrack
 import android.os.Build
+import android.speech.tts.TextToSpeech
+import java.util.Locale
 import kotlinx.coroutines.*
 import kotlin.math.sin
 import kotlin.math.exp
@@ -26,6 +29,36 @@ object SoundManager {
         }
 
     private var bgmJob: Job? = null
+    
+    // TTS Voice synthesis for discarded tiles
+    private var tts: TextToSpeech? = null
+    private var isTtsInitialized = false
+
+    fun init(context: Context) {
+        if (tts == null) {
+            val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+            var tempTts: TextToSpeech? = null
+            tempTts = TextToSpeech(context.applicationContext) { status ->
+                mainHandler.post {
+                    if (status == TextToSpeech.SUCCESS) {
+                        try {
+                            val activeTts = tempTts ?: tts
+                            activeTts?.let {
+                                val result = it.setLanguage(Locale.CHINESE)
+                                if (result != TextToSpeech.LANG_MISSING_DATA && result != TextToSpeech.LANG_NOT_SUPPORTED) {
+                                    isTtsInitialized = true
+                                    it.setSpeechRate(1.25f) // Set speech rate slightly faster for active gameplay feel
+                                }
+                            }
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
+                }
+            }
+            tts = tempTts
+        }
+    }
 
     // Pre-allocated / Cached SFX tracks
     private var clickTrack: AudioTrack? = null
@@ -260,6 +293,94 @@ object SoundManager {
         }
     }
 
+    // TTS Voice synthesis matching
+    fun speakTile(tile: com.example.model.MahjongTile) {
+        if (!isSfxEnabled) return
+        val text = when (tile.type) {
+            com.example.model.TileType.WAN -> {
+                val numStr = when (tile.value) {
+                    1 -> "一"
+                    2 -> "二"
+                    3 -> "三"
+                    4 -> "四"
+                    5 -> "五"
+                    6 -> "六"
+                    7 -> "七"
+                    8 -> "八"
+                    9 -> "九"
+                    else -> tile.value.toString()
+                }
+                numStr + "万"
+            }
+            com.example.model.TileType.TONG -> {
+                val numStr = when (tile.value) {
+                    1 -> "一"
+                    2 -> "二"
+                    3 -> "三"
+                    4 -> "四"
+                    5 -> "五"
+                    6 -> "六"
+                    7 -> "七"
+                    8 -> "八"
+                    9 -> "九"
+                    else -> tile.value.toString()
+                }
+                numStr + "筒"
+            }
+            com.example.model.TileType.TIAO -> {
+                val numStr = when (tile.value) {
+                    1 -> "一"
+                    2 -> "二"
+                    3 -> "三"
+                    4 -> "四"
+                    5 -> "五"
+                    6 -> "六"
+                    7 -> "七"
+                    8 -> "八"
+                    9 -> "九"
+                    else -> tile.value.toString()
+                }
+                numStr + "条"
+            }
+            com.example.model.TileType.WIND -> {
+                when (tile.value) {
+                    1 -> "东风"
+                    2 -> "南风"
+                    3 -> "西风"
+                    4 -> "北风"
+                    else -> "风"
+                }
+            }
+            com.example.model.TileType.DRAGON -> {
+                when (tile.value) {
+                    1 -> "红中"
+                    2 -> "发财"
+                    3 -> "白板"
+                    else -> "字"
+                }
+            }
+        }
+        speak(text)
+    }
+
+    fun speak(text: String) {
+        if (!isSfxEnabled) return
+        scope.launch {
+            if (isTtsInitialized) {
+                try {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "tile_discard")
+                    } else {
+                        @Suppress("DEPRECATION")
+                        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null)
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
+    }
+
     // BGM STREAM Mode Loop (Single track used repeatedly)
     private fun startBgmLoop() {
         if (!isBgmEnabled) return
@@ -340,6 +461,14 @@ object SoundManager {
             try { claimTrack?.release(); claimTrack = null } catch(e: Exception) {}
             try { diceTrack?.release(); diceTrack = null } catch(e: Exception) {}
             try { winTrack?.release(); winTrack = null } catch(e: Exception) {}
+        }
+        try {
+            tts?.stop()
+            tts?.shutdown()
+            tts = null
+            isTtsInitialized = false
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
         scope.cancel()
     }

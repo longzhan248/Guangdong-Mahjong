@@ -520,6 +520,7 @@ class MahjongViewModel(private val repository: GameRecordRepository) : ViewModel
         _activePlayerIndex.value = -1 // Transition state
 
         SoundManager.playDiscard()
+        SoundManager.speakTile(tile)
         addLog("你打出了 [${tile.displayName}]")
 
         // Trigger evaluations for other players to Peng / Gang / Hu
@@ -620,6 +621,7 @@ class MahjongViewModel(private val repository: GameRecordRepository) : ViewModel
             _players.value = playersCopy
 
             SoundManager.playDiscard()
+            SoundManager.speakTile(discardChoice)
             _lastDiscard.value = discardChoice
             _discarderIndex.value = aiIdx
             addLog("${currentAiPlayer.name} 打出了 [${discardChoice.displayName}]")
@@ -940,6 +942,7 @@ class MahjongViewModel(private val repository: GameRecordRepository) : ViewModel
             _players.value = playersCopy
 
             SoundManager.playDiscard()
+            SoundManager.speakTile(discardChoice)
             _lastDiscard.value = discardChoice
             _discarderIndex.value = aiIdx
             addLog("${currentAiPlayer.name} 打出了 [${discardChoice.displayName}]")

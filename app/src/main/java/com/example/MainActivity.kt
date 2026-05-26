@@ -13,6 +13,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.data.AppDatabase
 import com.example.data.GameRecordRepository
 import com.example.ui.MahjongScreen
+import com.example.ui.SoundManager
 import com.example.ui.theme.MyApplicationTheme
 import com.example.viewmodel.MahjongViewModel
 
@@ -26,6 +27,9 @@ class MainActivity : ComponentActivity() {
     // Initialize database and repository once at the Activity level, preventing recreation and connection leaks on recompositions
     database = AppDatabase.getDatabase(applicationContext)
     repository = GameRecordRepository(database.gameRecordDao())
+
+    // Initialize sound engine with TTS support
+    SoundManager.init(applicationContext)
 
     enableEdgeToEdge()
     setContent {
@@ -41,6 +45,11 @@ class MainActivity : ComponentActivity() {
         }
       }
     }
+  }
+
+  override fun onDestroy() {
+    super.onDestroy()
+    SoundManager.release()
   }
 }
 
