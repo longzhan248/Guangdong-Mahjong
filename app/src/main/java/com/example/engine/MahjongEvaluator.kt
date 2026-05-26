@@ -3,6 +3,8 @@ package com.example.engine
 import com.example.model.MahjongTile
 import com.example.model.MahjongMeld
 import com.example.model.TileType
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 object MahjongEvaluator {
 
@@ -15,19 +17,21 @@ object MahjongEvaluator {
     )
 
     // Check if the current hand + new tile yields a win (Hu)
-    fun checkHu(
+    suspend fun checkHu(
         handTiles: List<MahjongTile>,
         declaredMelds: List<MahjongMeld>,
         winningTile: MahjongTile,
         isSelfDraw: Boolean,
-        isGangShangKaiHua: Boolean = false
-    ): WinResult {
+        isGangShangKaiHua: Boolean = false,
+        wildTileType: TileType? = null,
+        wildTileValue: Int? = null
+    ): WinResult = withContext(Dispatchers.Default) {
         // Form the full combination
         val fullHand = (handTiles + winningTile).sorted()
 
         // 1. Thirteen Orphans (十三幺) - Must be 14 tiles (no declared melds)
         if (declaredMelds.isEmpty() && isThirteenOrphans(fullHand)) {
-            return WinResult(
+            return@withContext WinResult(
                 isWin = true,
                 handName = "十三幺",
                 fan = 10,
@@ -36,8 +40,8 @@ object MahjongEvaluator {
         }
 
         // 2. Seven Pairs (七对) - Must be 14 tiles (no declared melds)
-        if (declaredMelds.isEmpty() && isSevenPairs(fullHand)) {
-            val isQingYiSe = isQingYiSe(fullHand, declaredMelds)
+        if (declaredMelds.isEmpty() && isSevenPairs(fullHand, wildTileType, wildTileValue)) {
+            val isQingYiSe = isQingYiSe(fullHand, declaredMelds, wildTileType, wildTileValue)
             var fan = 4
             val details = mutableListOf<String>()
             var name = "七对"
@@ -45,7 +49,7 @@ object MahjongEvaluator {
                 fan += 4
                 details.add("清一色 (+4番)")
                 name = "清一色七对"
-            } else if (isHunYiSe(fullHand, declaredMelds)) {
+            } else if (isHunYiSe(fullHand, declaredMelds, wildTileType, wildTileValue)) {
                 fan += 2
                 details.add("混一色 (+2番)")
                 name = "混一色七对"
@@ -59,19 +63,19 @@ object MahjongEvaluator {
                 fan += 1
                 details.add("杠上开花 (+1番)")
             }
-            return WinResult(true, name, fan, details)
+            return@withContext WinResult(true, name, fan, details)
         }
 
         // 3. Standard Hu
-        val standardWin = checkStandardHu(fullHand)
+        val standardWin = checkStandardHu(fullHand, wildTileType, wildTileValue)
         if (standardWin) {
             val details = mutableListOf<String>()
             var fan = 1
             var name = "鸡胡"
 
-            val isQing = isQingYiSe(fullHand, declaredMelds)
-            val isHun = isHunYiSe(fullHand, declaredMelds)
-            val isPengPeng = isPengPengHu(fullHand, declaredMelds)
+            val isQing = isQingYiSe(fullHand, declaredMelds, wildTileType, wildTileValue)
+            val isHun = isHunYiSe(fullHand, declaredMelds, wildTileType, wildTileValue)
+            val isPengPeng = isPengPengHu(fullHand, declaredMelds, wildTileType, wildTileValue)
 
             if (isQing) {
                 fan += 4
@@ -100,20 +104,30 @@ object MahjongEvaluator {
                 details.add("杠上开花 (+1番)")
             }
 
-            return WinResult(true, name, fan, details)
+            return@withContext WinResult(true, name, fan, details)
         }
 
-        return WinResult(false)
+        return@withContext WinResult(false)
     }
 
-    // Checking Seven Pairs (七对)
-    private fun isSevenPairs(tiles: List<MahjongTile>): Boolean {
+    // Helper extension to identify if a tile is a Wild/Joker tile
+    private fun MahjongTile.isWild(wildType: TileType?, wildVal: Int?): Boolean {
+        return wildType != null && wildVal != null && this.type == wildType && this.value == wildVal
+    }
+
+    // Checking Seven Pairs (七对) with Wild Cards
+    private fun isSevenPairs(tiles: List<MahjongTile>, wildType: TileType?, wildVal: Int?): Boolean {
         if (tiles.size != 14) return false
-        val groups = tiles.groupBy { it.type.toString() + "_" + it.value }
-        return groups.values.all { it.size == 2 || it.size == 4 }
+        val (wilds, normals) = tiles.partition { it.isWild(wildType, wildVal) }
+        val wildCount = wilds.size
+
+        val groups = normals.groupBy { it.type.toString() + "_" + it.value }
+        val needed = groups.values.sumOf { it.size % 2 }
+
+        return wildCount >= needed && (wildCount - needed) % 2 == 0
     }
 
-    // Checking Thirteen Orphans (十三幺 - 1,9 of Wan/Tiao/Tong, East/South/West/North, Red/Green/White, +1 duplicate)
+    // Checking Thirteen Orphans (十三幺 - Standard implementation without wild substitution)
     private fun isThirteenOrphans(tiles: List<MahjongTile>): Boolean {
         if (tiles.size != 14) return false
         
@@ -125,24 +139,23 @@ object MahjongEvaluator {
             Pair(TileType.DRAGON, 1), Pair(TileType.DRAGON, 2), Pair(TileType.DRAGON, 3)
         )
 
-        // Count match with required orphans
         val grouped = tiles.groupBy { Pair(it.type, it.value) }
-        if (grouped.size != 13) return false // Must have exactly 13 unique types of orphans
+        if (grouped.size != 13) return false
 
         return required.all { req -> grouped.containsKey(req) && grouped[req]!!.isNotEmpty() }
     }
 
-    // Checking Qing Yi Se (清一色 - Hand consists of ONLY ONE suit (Wan, Tong, or Tiao), NO Winds or Dragons)
-    private fun isQingYiSe(tiles: List<MahjongTile>, melds: List<MahjongMeld>): Boolean {
-        val allTiles = tiles + melds.flatMap { it.tiles }
-        if (allTiles.isEmpty()) return false
+    // Checking Qing Yi Se (清一色 - Hand consists of ONLY ONE suit, NO Winds or Dragons)
+    private fun isQingYiSe(tiles: List<MahjongTile>, melds: List<MahjongMeld>, wildType: TileType?, wildVal: Int?): Boolean {
+        val allTiles = (tiles + melds.flatMap { it.tiles }).filter { !it.isWild(wildType, wildVal) }
+        if (allTiles.isEmpty()) return true
         val firstMainSuit = allTiles.firstOrNull { it.type in listOf(TileType.WAN, TileType.TONG, TileType.TIAO) }?.type ?: return false
         return allTiles.all { it.type == firstMainSuit }
     }
 
-    // Checking Hun Yi Se (混一色 - Hand consists of ONLY ONE suit (Wan, Tong or Tiao) AND Winds/Dragons)
-    private fun isHunYiSe(tiles: List<MahjongTile>, melds: List<MahjongMeld>): Boolean {
-        val allTiles = tiles + melds.flatMap { it.tiles }
+    // Checking Hun Yi Se (混一色 - Hand consists of ONLY ONE suit AND Winds/Dragons)
+    private fun isHunYiSe(tiles: List<MahjongTile>, melds: List<MahjongMeld>, wildType: TileType?, wildVal: Int?): Boolean {
+        val allTiles = (tiles + melds.flatMap { it.tiles }).filter { !it.isWild(wildType, wildVal) }
         if (allTiles.isEmpty()) return false
         
         val suits = allTiles.map { it.type }.distinct()
@@ -152,93 +165,240 @@ object MahjongEvaluator {
         return numericSuits.size == 1 && letterSuits.isNotEmpty()
     }
 
-    // Checking Peng Peng Hu (碰碰胡 - all melds in hand/revealed are triplets/quads + 1 pair)
-    private fun isPengPengHu(tiles: List<MahjongTile>, melds: List<MahjongMeld>): Boolean {
-        // If there is any sequence (顺子) in Hand, it's not Peng Peng Hu!
-        // So standard partition into melds should ONLY use triplets.
-        // Let's check: can partition using ONLY triplets after removing a pair?
+    // Checking Peng Peng Hu (碰碰胡 - all melds in hand/revealed are triplets + 1 pair)
+    private fun isPengPengHu(tiles: List<MahjongTile>, melds: List<MahjongMeld>, wildType: TileType?, wildVal: Int?): Boolean {
+        val (wilds, normals) = tiles.partition { it.isWild(wildType, wildVal) }
+        val wildCount = wilds.size
         
-        val uniqueTiles = tiles.map { Pair(it.type, it.value) }.distinct()
+        val uniqueTiles = normals.map { Pair(it.type, it.value) }.distinct()
+        val memo = mutableMapOf<String, Boolean>()
+        
+        // Try each candidate pair
         for (pairCandidate in uniqueTiles) {
-            val candidateCount = tiles.count { it.type == pairCandidate.first && it.value == pairCandidate.second }
+            val candidateCount = normals.count { it.type == pairCandidate.first && it.value == pairCandidate.second }
             if (candidateCount >= 2) {
-                val remaining = tiles.toMutableList()
-                removeOneEquivalent(remaining, pairCandidate)
-                removeOneEquivalent(remaining, pairCandidate)
+                val remainingNormal = normals.toMutableList()
+                removeOneEquivalent(remainingNormal, pairCandidate)
+                removeOneEquivalent(remainingNormal, pairCandidate)
                 
-                // Now check if remaining can be perfectly partitioned into triplets ONLY
-                if (canPartitionTripletsOnly(remaining)) {
+                if (canPartitionTripletsOnlyWithWild(remainingNormal.sorted(), wildCount, memo)) {
                     return true
                 }
+            }
+        }
+        
+        if (wildCount >= 1) {
+            for (pairCandidate in uniqueTiles) {
+                val remainingNormal = normals.toMutableList()
+                removeOneEquivalent(remainingNormal, pairCandidate)
+                
+                if (canPartitionTripletsOnlyWithWild(remainingNormal.sorted(), wildCount - 1, memo)) {
+                    return true
+                }
+            }
+        }
+        
+        if (wildCount >= 2) {
+            if (canPartitionTripletsOnlyWithWild(normals.sorted(), wildCount - 2, memo)) {
+                return true
             }
         }
         return false
     }
 
-    private fun canPartitionTripletsOnly(tiles: List<MahjongTile>): Boolean {
-        if (tiles.isEmpty()) return true
-        val grouped = tiles.groupBy { Pair(it.type, it.value) }
-        return grouped.values.all { it.size == 3 || it.size == 4 || it.size == 0 } // A quad can also act as valid triplet + discarded or just 4 of a kind is fine
+    private fun getCacheKey(sortedNormals: List<MahjongTile>, wildCount: Int): String {
+        val sb = StringBuilder()
+        for (tile in sortedNormals) {
+            sb.append(tile.type.ordinal).append('_').append(tile.value).append(',')
+        }
+        sb.append(':').append(wildCount)
+        return sb.toString()
     }
 
-    // Standard recursive Hu checker
-    private fun checkStandardHu(tiles: List<MahjongTile>): Boolean {
-        val uniqueTiles = tiles.map { Pair(it.type, it.value) }.distinct()
+    private fun canPartitionTripletsOnlyWithWild(
+        sortedNormals: List<MahjongTile>, 
+        wildCount: Int,
+        memo: MutableMap<String, Boolean>
+    ): Boolean {
+        if (sortedNormals.isEmpty()) {
+            return wildCount % 3 == 0 && wildCount >= 0
+        }
+        val key = getCacheKey(sortedNormals, wildCount)
+        memo[key]?.let { return it }
+
+        val first = sortedNormals[0]
+        val firstCount = sortedNormals.count { it.isSameTile(first) }
         
+        // Scenario A1: 3 of 'first'
+        if (firstCount >= 3) {
+            val remaining = sortedNormals.toMutableList()
+            repeat(3) { removeOneEquivalent(remaining, first) }
+            if (canPartitionTripletsOnlyWithWild(remaining, wildCount, memo)) {
+                memo[key] = true
+                return true
+            }
+        }
+        // Scenario A2: 2 of 'first' + 1 wild card
+        if (firstCount >= 2 && wildCount >= 1) {
+            val remaining = sortedNormals.toMutableList()
+            repeat(2) { removeOneEquivalent(remaining, first) }
+            if (canPartitionTripletsOnlyWithWild(remaining, wildCount - 1, memo)) {
+                memo[key] = true
+                return true
+            }
+        }
+        // Scenario A3: 1 of 'first' + 2 wild cards
+        if (wildCount >= 2) {
+            val remaining = sortedNormals.toMutableList()
+            removeOneEquivalent(remaining, first)
+            if (canPartitionTripletsOnlyWithWild(remaining, wildCount - 2, memo)) {
+                memo[key] = true
+                return true
+            }
+        }
+        
+        memo[key] = false
+        return false
+    }
+
+    // Standard recursive Hu checker with wild card support
+    private fun checkStandardHu(tiles: List<MahjongTile>, wildType: TileType?, wildVal: Int?): Boolean {
+        val (wilds, normals) = tiles.partition { it.isWild(wildType, wildVal) }
+        val wildCount = wilds.size
+        
+        val uniqueTiles = normals.map { Pair(it.type, it.value) }.distinct()
+        val memo = mutableMapOf<String, Boolean>()
+        
+        // 1. Try pair candidates from normal tiles
         for (pairCandidate in uniqueTiles) {
-            val candidateCount = tiles.count { it.type == pairCandidate.first && it.value == pairCandidate.second }
+            val candidateCount = normals.count { it.type == pairCandidate.first && it.value == pairCandidate.second }
             if (candidateCount >= 2) {
-                val remaining = tiles.toMutableList()
-                removeOneEquivalent(remaining, pairCandidate)
-                removeOneEquivalent(remaining, pairCandidate)
+                val remainingNormal = normals.toMutableList()
+                removeOneEquivalent(remainingNormal, pairCandidate)
+                removeOneEquivalent(remainingNormal, pairCandidate)
                 
-                if (canPartitionIntoMelds(remaining)) {
+                if (canPartitionIntoMeldsWithWild(remainingNormal.sorted(), wildCount, memo)) {
                     return true
                 }
             }
         }
+        
+        // 2. Try pair candidate as 1 normal tile + 1 wild card
+        if (wildCount >= 1) {
+            for (pairCandidate in uniqueTiles) {
+                val remainingNormal = normals.toMutableList()
+                removeOneEquivalent(remainingNormal, pairCandidate)
+                
+                if (canPartitionIntoMeldsWithWild(remainingNormal.sorted(), wildCount - 1, memo)) {
+                    return true
+                }
+            }
+        }
+        
+        // 3. Try pair as two wild cards
+        if (wildCount >= 2) {
+            if (canPartitionIntoMeldsWithWild(normals.sorted(), wildCount - 2, memo)) {
+                return true
+            }
+        }
+        
+        if (normals.isEmpty() && wildCount >= 2) {
+            if ((wildCount - 2) % 3 == 0) return true
+        }
+
         return false
     }
 
-    private fun canPartitionIntoMelds(tiles: List<MahjongTile>): Boolean {
-        if (tiles.isEmpty()) return true
+    private fun canPartitionIntoMeldsWithWild(
+        sortedNormals: List<MahjongTile>, 
+        wildCount: Int,
+        memo: MutableMap<String, Boolean>
+    ): Boolean {
+        if (sortedNormals.isEmpty()) {
+            return wildCount % 3 == 0 && wildCount >= 0
+        }
+        val key = getCacheKey(sortedNormals, wildCount)
+        memo[key]?.let { return it }
         
-        val sorted = tiles.sorted()
-        val first = sorted[0]
+        val first = sortedNormals[0]
+        val firstCount = sortedNormals.count { it.isSameTile(first) }
         
-        // 1. Try Triplet (碰)
-        val sameCount = sorted.count { it.isSameTile(first) }
-        if (sameCount >= 3) {
-            val remaining = sorted.toMutableList()
-            var removed = 0
-            val iterator = remaining.iterator()
-            while (iterator.hasNext() && removed < 3) {
-                if (iterator.next().isSameTile(first)) {
-                    iterator.remove()
-                    removed++
-                }
+        // Try Option A: Form a Triplet containing 'first'
+        if (firstCount >= 3) {
+            val remaining = sortedNormals.toMutableList()
+            repeat(3) { removeOneEquivalent(remaining, first) }
+            if (canPartitionIntoMeldsWithWild(remaining, wildCount, memo)) {
+                memo[key] = true
+                return true
             }
-            if (canPartitionIntoMelds(remaining)) return true
+        }
+        if (firstCount >= 2 && wildCount >= 1) {
+            val remaining = sortedNormals.toMutableList()
+            repeat(2) { removeOneEquivalent(remaining, first) }
+            if (canPartitionIntoMeldsWithWild(remaining, wildCount - 1, memo)) {
+                memo[key] = true
+                return true
+            }
+        }
+        if (wildCount >= 2) {
+            val remaining = sortedNormals.toMutableList()
+            removeOneEquivalent(remaining, first)
+            if (canPartitionIntoMeldsWithWild(remaining, wildCount - 2, memo)) {
+                memo[key] = true
+                return true
+            }
         }
         
-        // 2. Try Sequence (顺子) - only valid for Wan, Tong, Tiao
+        // Try Option B: Form a Sequence containing 'first' (only WAN, TONG, TIAO)
         if (first.type in listOf(TileType.WAN, TileType.TONG, TileType.TIAO)) {
-            val next1 = first.copy(value = first.value + 1)
-            val next2 = first.copy(value = first.value + 2)
+            val val1 = first.value + 1
+            val val2 = first.value + 2
             
-            val hasNext1 = sorted.any { it.isSameTile(next1) }
-            val hasNext2 = sorted.any { it.isSameTile(next2) }
+            val next1 = first.copy(value = val1)
+            val next2 = first.copy(value = val2)
             
-            if (hasNext1 && hasNext2) {
-                val remaining = sorted.toMutableList()
-                removeOneEquivalent(remaining, Pair(first.type, first.value))
-                removeOneEquivalent(remaining, Pair(next1.type, next1.value))
-                removeOneEquivalent(remaining, Pair(next2.type, next2.value))
-                
-                if (canPartitionIntoMelds(remaining)) return true
+            val has1 = sortedNormals.any { it.isSameTile(next1) }
+            val has2 = sortedNormals.any { it.isSameTile(next2) }
+            
+            if (has1 && has2) {
+                val remaining = sortedNormals.toMutableList()
+                removeOneEquivalent(remaining, first)
+                removeOneEquivalent(remaining, next1)
+                removeOneEquivalent(remaining, next2)
+                if (canPartitionIntoMeldsWithWild(remaining, wildCount, memo)) {
+                    memo[key] = true
+                    return true
+                }
+            }
+            if (has1 && wildCount >= 1) {
+                val remaining = sortedNormals.toMutableList()
+                removeOneEquivalent(remaining, first)
+                removeOneEquivalent(remaining, next1)
+                if (canPartitionIntoMeldsWithWild(remaining, wildCount - 1, memo)) {
+                    memo[key] = true
+                    return true
+                }
+            }
+            if (has2 && wildCount >= 1) {
+                val remaining = sortedNormals.toMutableList()
+                removeOneEquivalent(remaining, first)
+                removeOneEquivalent(remaining, next2)
+                if (canPartitionIntoMeldsWithWild(remaining, wildCount - 1, memo)) {
+                    memo[key] = true
+                    return true
+                }
+            }
+            if (wildCount >= 2) {
+                val remaining = sortedNormals.toMutableList()
+                removeOneEquivalent(remaining, first)
+                if (canPartitionIntoMeldsWithWild(remaining, wildCount - 2, memo)) {
+                    memo[key] = true
+                    return true
+                }
             }
         }
         
+        memo[key] = false
         return false
     }
 

@@ -112,6 +112,32 @@ class MahjongViewModel(private val repository: GameRecordRepository) : ViewModel
     private val _playSpeedMs = MutableStateFlow(1000L)
     val playSpeedMs: StateFlow<Long> = _playSpeedMs.asStateFlow()
 
+    enum class JokerMode {
+        NONE,       // 无万能牌
+        HONG_ZHONG, // 红中 (万能牌)
+        BAI_BAN     // 白板 (万能牌)
+    }
+
+    private val _jokerMode = MutableStateFlow(JokerMode.NONE)
+    val jokerMode: StateFlow<JokerMode> = _jokerMode.asStateFlow()
+
+    fun setJokerMode(mode: JokerMode) {
+        _jokerMode.value = mode
+        addLog("玩法设置：${when(mode) {
+            JokerMode.NONE -> "无万能牌（经典玩法）"
+            JokerMode.HONG_ZHONG -> "红中作鬼牌（万能牌玩法）"
+            JokerMode.BAI_BAN -> "白板作鬼牌（万能牌玩法）"
+        }}")
+    }
+
+    fun getWildCardDetails(): Pair<TileType?, Int?> {
+        return when (_jokerMode.value) {
+            JokerMode.NONE -> Pair(null, null)
+            JokerMode.HONG_ZHONG -> Pair(TileType.DRAGON, 1)
+            JokerMode.BAI_BAN -> Pair(TileType.DRAGON, 3)
+        }
+    }
+
     // Dice indicators
     private val _dice1 = MutableStateFlow(1)
     val dice1: StateFlow<Int> = _dice1.asStateFlow()
@@ -311,16 +337,19 @@ class MahjongViewModel(private val repository: GameRecordRepository) : ViewModel
     }
 
     // Evaluate actions user can make on drawing a tile
-    private fun evaluateUserSelfActions(drawnTile: MahjongTile) {
+    private suspend fun evaluateUserSelfActions(drawnTile: MahjongTile) {
         val player = _players.value[0]
         val sortedHand = player.hand
 
         // 1. Check for Self Draw Win (自摸)
+        val wildDetails = getWildCardDetails()
         val huEval = MahjongEvaluator.checkHu(
             handTiles = sortedHand,
             declaredMelds = player.declaredMelds,
             winningTile = drawnTile,
-            isSelfDraw = true
+            isSelfDraw = true,
+            wildTileType = wildDetails.first,
+            wildTileValue = wildDetails.second
         )
 
         // 2. Check for Angang (4 of a kind inside hand including drawn tile)
@@ -359,15 +388,20 @@ class MahjongViewModel(private val repository: GameRecordRepository) : ViewModel
         if (!actions.canHu || actions.targetTile == null) return
 
         val player = _players.value[0]
-        val winEval = MahjongEvaluator.checkHu(
-            handTiles = player.hand,
-            declaredMelds = player.declaredMelds,
-            winningTile = actions.targetTile,
-            isSelfDraw = true
-        )
+        viewModelScope.launch {
+            val wildDetails = getWildCardDetails()
+            val winEval = MahjongEvaluator.checkHu(
+                handTiles = player.hand,
+                declaredMelds = player.declaredMelds,
+                winningTile = actions.targetTile,
+                isSelfDraw = true,
+                wildTileType = wildDetails.first,
+                wildTileValue = wildDetails.second
+            )
 
-        handleWin(0, 0, actions.targetTile, winEval, isSelfDraw = true)
-        _actionsAvailable.value = UserActions()
+            handleWin(0, 0, actions.targetTile, winEval, isSelfDraw = true)
+            _actionsAvailable.value = UserActions()
+        }
     }
 
     // Perform User self-action: Gang (暗杠 or 补杠)
@@ -507,11 +541,14 @@ class MahjongViewModel(private val repository: GameRecordRepository) : ViewModel
             val hand = currentAiPlayer.hand
 
             // 1. Check AI Zimo (自摸)
+            val wildDetails = getWildCardDetails()
             val huEval = MahjongEvaluator.checkHu(
                 handTiles = hand,
                 declaredMelds = currentAiPlayer.declaredMelds,
                 winningTile = drawnTile,
-                isSelfDraw = true
+                isSelfDraw = true,
+                wildTileType = wildDetails.first,
+                wildTileValue = wildDetails.second
             )
             if (huEval.isWin) {
                 playersCopy[aiIdx] = currentAiPlayer.copy(activeStatus = "自摸胡！")
@@ -566,7 +603,11 @@ class MahjongViewModel(private val repository: GameRecordRepository) : ViewModel
             }
 
             // 3. Normal Discard
-            val discardChoice = MahjongAI.selectDiscardTile(combinedHand)
+            val discardChoice = MahjongAI.selectDiscardTile(
+                combinedHand,
+                wildTileType = wildDetails.first,
+                wildTileValue = wildDetails.second
+            )
             val finalHandCopy = combinedHand.toMutableList()
             finalHandCopy.remove(discardChoice)
 
@@ -596,11 +637,14 @@ class MahjongViewModel(private val repository: GameRecordRepository) : ViewModel
                 val claimerIdx = (discarderIdx + step) % 4
                 val claimer = _players.value[claimerIdx]
 
+                val wildDetails = getWildCardDetails()
                 val huCheck = MahjongEvaluator.checkHu(
                     handTiles = claimer.hand,
                     declaredMelds = claimer.declaredMelds,
                     winningTile = tile,
-                    isSelfDraw = false
+                    isSelfDraw = false,
+                    wildTileType = wildDetails.first,
+                    wildTileValue = wildDetails.second
                 )
 
                 if (huCheck.isWin) {
@@ -668,15 +712,20 @@ class MahjongViewModel(private val repository: GameRecordRepository) : ViewModel
         val discarder = _discarderIndex.value ?: return
 
         val player = _players.value[0]
-        val winEval = MahjongEvaluator.checkHu(
-            handTiles = player.hand,
-            declaredMelds = player.declaredMelds,
-            winningTile = tile,
-            isSelfDraw = false
-        )
+        viewModelScope.launch {
+            val wildDetails = getWildCardDetails()
+            val winEval = MahjongEvaluator.checkHu(
+                handTiles = player.hand,
+                declaredMelds = player.declaredMelds,
+                winningTile = tile,
+                isSelfDraw = false,
+                wildTileType = wildDetails.first,
+                wildTileValue = wildDetails.second
+            )
 
-        handleWin(0, discarder, tile, winEval, isSelfDraw = false)
-        _actionsAvailable.value = UserActions()
+            handleWin(0, discarder, tile, winEval, isSelfDraw = false)
+            _actionsAvailable.value = UserActions()
+        }
     }
 
     // User claims Peng (碰)
@@ -691,8 +740,7 @@ class MahjongViewModel(private val repository: GameRecordRepository) : ViewModel
         // Remove 2 matching tiles from hand
         val matchTiles = player.hand.filter { it.isSameTile(tile) }.take(2)
         val remainingHand = player.hand.toMutableList()
-        remainingHand.remove(matchTiles[0])
-        remainingHand.remove(matchTiles[1])
+        matchTiles.forEach { remainingHand.remove(it) }
 
         val newMeld = MahjongMeld.Peng(matchTiles + tile)
 
@@ -875,7 +923,12 @@ class MahjongViewModel(private val repository: GameRecordRepository) : ViewModel
             delay(_playSpeedMs.value)
 
             val currentAiPlayer = _players.value[aiIdx]
-            val discardChoice = MahjongAI.selectDiscardTile(currentAiPlayer.hand)
+            val wildDetails = getWildCardDetails()
+            val discardChoice = MahjongAI.selectDiscardTile(
+                currentAiPlayer.hand,
+                wildTileType = wildDetails.first,
+                wildTileValue = wildDetails.second
+            )
             val finalHandCopy = currentAiPlayer.hand.toMutableList()
             finalHandCopy.remove(discardChoice)
 

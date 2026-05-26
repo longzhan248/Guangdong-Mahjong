@@ -7,7 +7,11 @@ import com.example.model.TileType
 object MahjongAI {
 
     // Decide what tile to discard from hand (14 tiles)
-    fun selectDiscardTile(hand: List<MahjongTile>): MahjongTile {
+    fun selectDiscardTile(
+        hand: List<MahjongTile>,
+        wildTileType: TileType? = null,
+        wildTileValue: Int? = null
+    ): MahjongTile {
         if (hand.isEmpty()) throw IllegalArgumentException("Hand cannot be empty")
         if (hand.size == 1) return hand[0]
 
@@ -18,6 +22,12 @@ object MahjongAI {
         // Let's rate each tile's "loneliness score" (higher score = more isolated = better candidate to discard)
         val ratedTiles = hand.map { tile ->
             var score = 0 // Baseline score
+
+            // Check if this is a Wild/Joker tile
+            if (wildTileType != null && wildTileValue != null && tile.type == wildTileType && tile.value == wildTileValue) {
+                // Wild card is extremely valuable, dramatically decrease its discard rating!
+                score -= 2000
+            }
 
             val count = tileCounts[Pair(tile.type, tile.value)]?.size ?: 1
 

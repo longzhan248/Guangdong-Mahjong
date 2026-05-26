@@ -17,13 +17,19 @@ import com.example.ui.theme.MyApplicationTheme
 import com.example.viewmodel.MahjongViewModel
 
 class MainActivity : ComponentActivity() {
+  private lateinit var database: AppDatabase
+  private lateinit var repository: GameRecordRepository
+
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
+    
+    // Initialize database and repository once at the Activity level, preventing recreation and connection leaks on recompositions
+    database = AppDatabase.getDatabase(applicationContext)
+    repository = GameRecordRepository(database.gameRecordDao())
+
     enableEdgeToEdge()
     setContent {
       MyApplicationTheme {
-        val database = AppDatabase.getDatabase(applicationContext)
-        val repository = GameRecordRepository(database.gameRecordDao())
         val mahjongViewModel: MahjongViewModel = viewModel(
           factory = MahjongViewModel.provideFactory(repository)
         )

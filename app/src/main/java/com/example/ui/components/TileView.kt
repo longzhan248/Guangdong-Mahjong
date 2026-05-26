@@ -37,6 +37,7 @@ fun TileView(
     smallSize: Boolean = false,
     mediumSize: Boolean = false,
     faceDown: Boolean = false,
+    isWild: Boolean = false,
     onClick: (() -> Unit)? = null
 ) {
     val width = if (smallSize) 28.dp else if (mediumSize) 33.dp else 42.dp
@@ -47,7 +48,7 @@ fun TileView(
         .offset(y = activeOffset)
         .size(width, height)
         .shadow(
-            elevation = if (isSelected) 8.dp else 3.dp,
+            elevation = if (isSelected) 8.dp else if (isWild) 5.dp else 3.dp,
             shape = RoundedCornerShape(4.dp)
         )
         .clip(RoundedCornerShape(4.dp))
@@ -87,12 +88,36 @@ fun TileView(
             modifier = finalModifier
                 .background(MahjongBoneWhite)
                 // Bottom-side border represents the green plastic backing peeking from bottom/sides
+                // (With stunning gold border if it is a Wild tile!)
                 .border(
-                    width = 1.dp,
-                    color = MahjongBorderBeige,
+                    width = if (isWild) 2.dp else 1.dp,
+                    color = if (isWild) Color(0xFFF59E0B) else MahjongBorderBeige,
                     shape = RoundedCornerShape(4.dp)
                 )
         ) {
+            // If it is a Wild card, draw a beautiful small "鬼" (Ghost/Wild Card) golden corner badge
+            if (isWild) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(x = 0.5.dp, y = (-0.5).dp)
+                        .background(
+                            Brush.horizontalGradient(
+                                colors = listOf(Color(0xFFFFEA70), Color(0xFFD4AF37))
+                            ),
+                            RoundedCornerShape(bottomStart = 4.dp, topEnd = 4.dp)
+                        )
+                        .padding(horizontal = 2.dp, vertical = 0.5.dp)
+                ) {
+                    Text(
+                        text = "鬼",
+                        fontSize = if (smallSize) 6.sp else if (mediumSize) 7.sp else 8.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF450A0A)
+                    )
+                }
+            }
+
             // Highlight bar on top face to mimic glossy screen sheen
             Box(
                 modifier = Modifier

@@ -71,6 +71,7 @@ fun MahjongScreen(viewModel: MahjongViewModel) {
     val roundOutcome by viewModel.roundResult.collectAsStateWithLifecycle()
     val logs by viewModel.gameLogs.collectAsStateWithLifecycle()
     val records by viewModel.gameRecords.collectAsStateWithLifecycle()
+    val jokerMode by viewModel.jokerMode.collectAsStateWithLifecycle()
 
     DisposableEffect(Unit) {
         if (SoundManager.isBgmEnabled) {
@@ -91,12 +92,15 @@ fun MahjongScreen(viewModel: MahjongViewModel) {
             when (gameState) {
                 GameState.MENU -> MainMenuScreen(
                     records = records,
+                    jokerMode = jokerMode,
+                    onJokerModeChange = { viewModel.setJokerMode(it) },
                     onStartGame = { SoundManager.playClick(); viewModel.startNewGame() },
                     onOpenHelp = { SoundManager.playClick(); viewModel.enterHelp() },
                     onResetCabinet = { SoundManager.playClick(); viewModel.resetEntireCabinet() }
                 )
                 GameState.PLAYING, GameState.REVEAL_WIN -> GamePlayScreen(
                     players = players,
+                    jokerMode = jokerMode,
                     deckCount = deck.size,
                     activeIdx = activeIdx,
                     dealerIdx = dealerIdx,
@@ -135,6 +139,8 @@ fun MahjongScreen(viewModel: MahjongViewModel) {
 @Composable
 fun MainMenuScreen(
     records: List<com.example.data.GameRecord>,
+    jokerMode: MahjongViewModel.JokerMode,
+    onJokerModeChange: (MahjongViewModel.JokerMode) -> Unit,
     onStartGame: () -> Unit,
     onOpenHelp: () -> Unit,
     onResetCabinet: () -> Unit
@@ -150,7 +156,7 @@ fun MainMenuScreen(
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(18.dp))
 
         // Gorgeous Calligraphy-Style Title Card
         Box(
@@ -163,28 +169,90 @@ fun MainMenuScreen(
                     shape = RoundedCornerShape(24.dp)
                 )
                 .border(2.dp, MahjongGold, RoundedCornerShape(24.dp))
-                .padding(vertical = 28.dp),
+                .padding(vertical = 16.dp),
             contentAlignment = Alignment.Center
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
                     text = "广东单机麻将",
-                    fontSize = 34.sp,
+                    fontSize = 32.sp,
                     fontWeight = FontWeight.Black,
                     color = MahjongGold,
                     letterSpacing = 2.sp
                 )
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = "经典推倒胡 · 碰杠自摸 · 娱乐休闲",
-                    fontSize = 13.sp,
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.Medium,
                     color = Color.White.copy(alpha = 0.85f)
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        // Wild Card Settings Row (Modern Card Selector)
+        Card(
+            modifier = Modifier
+                .fillMaxWidth(0.95f)
+                .padding(vertical = 12.dp)
+                .border(1.dp, Color(0x33FBBF24), RoundedCornerShape(16.dp)),
+            colors = CardDefaults.cardColors(containerColor = Color(0x15FFFFFF)),
+            elevation = CardDefaults.cardElevation(2.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "🀄 玩法选择：万能牌 (鬼牌) 属性",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MahjongGold
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val modes = listOf(
+                        Triple(MahjongViewModel.JokerMode.NONE, "经典玩法", "无万能卡"),
+                        Triple(MahjongViewModel.JokerMode.HONG_ZHONG, "红中当鬼", "中是万能牌"),
+                        Triple(MahjongViewModel.JokerMode.BAI_BAN, "白板当鬼", "白是万能牌")
+                    )
+                    modes.forEach { (modeOption, title, subtitle) ->
+                        val isSelected = jokerMode == modeOption
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(54.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(if (isSelected) Color(0xFF10B981) else Color(0x15FFFFFF))
+                                .clickable {
+                                    SoundManager.playClick()
+                                    onJokerModeChange(modeOption)
+                                }
+                                .border(1.dp, if (isSelected) Color.White.copy(alpha = 0.8f) else Color(0x22FFFFFF), RoundedCornerShape(12.dp))
+                                .padding(4.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = title,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isSelected) Color.White else Color.LightGray
+                                )
+                                Text(
+                                    text = subtitle,
+                                    fontSize = 10.sp,
+                                    color = if (isSelected) Color.White.copy(alpha = 0.9f) else Color.Gray
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         // Core Actions
         Row(
@@ -195,28 +263,28 @@ fun MainMenuScreen(
                 onClick = onStartGame,
                 modifier = Modifier
                     .weight(1.3f)
-                    .height(56.dp),
+                    .height(50.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
                 shape = RoundedCornerShape(16.dp),
                 elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp)
             ) {
-                Text("开始对局", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                Text("开始对局", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Color.White)
             }
 
             Button(
                 onClick = onOpenHelp,
                 modifier = Modifier
                     .weight(1f)
-                    .height(56.dp),
+                    .height(50.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1F2937)),
                 shape = RoundedCornerShape(16.dp),
                 elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp)
             ) {
-                Text("玩法说明", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = Color.White)
+                Text("玩法说明", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Color.White)
             }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(14.dp))
 
         // Historic Stats Summary
         if (records.isNotEmpty()) {
@@ -356,6 +424,7 @@ fun MainMenuScreen(
 @Composable
 fun GamePlayScreen(
     players: List<MahjongPlayer>,
+    jokerMode: MahjongViewModel.JokerMode,
     deckCount: Int,
     activeIdx: Int,
     dealerIdx: Int,
@@ -386,6 +455,14 @@ fun GamePlayScreen(
     onExitToMenu: () -> Unit
 ) {
     if (players.size < 4) return
+
+    val isTileWild = { tile: MahjongTile ->
+        when (jokerMode) {
+            MahjongViewModel.JokerMode.NONE -> false
+            MahjongViewModel.JokerMode.HONG_ZHONG -> tile.type == com.example.model.TileType.DRAGON && tile.value == 1
+            MahjongViewModel.JokerMode.BAI_BAN -> tile.type == com.example.model.TileType.DRAGON && tile.value == 3
+        }
+    }
 
     val playerMe = players[0]
     val playerRight = players[1]
@@ -583,7 +660,7 @@ fun GamePlayScreen(
                         }
                     }
                     // Meld reveal
-                    MeldListRow(playerUp.declaredMelds)
+                    MeldListRow(playerUp.declaredMelds, isTileWild)
                 }
 
                 // LEFT AI (Player 3 - 雀圣波仔)
@@ -602,7 +679,7 @@ fun GamePlayScreen(
                         color = Color.White.copy(0.8f),
                         fontWeight = FontWeight.Bold
                     )
-                    MeldListRow(playerLeft.declaredMelds)
+                    MeldListRow(playerLeft.declaredMelds, isTileWild)
                 }
 
                 // RIGHT AI (Player 1 - 雀友阿明)
@@ -621,7 +698,7 @@ fun GamePlayScreen(
                         color = Color.White.copy(0.8f),
                         fontWeight = FontWeight.Bold
                     )
-                    MeldListRow(playerRight.declaredMelds)
+                    MeldListRow(playerRight.declaredMelds, isTileWild)
                 }
 
                 // CENTER CONTROLLER PANEL (Remaining cards, Turn Indicator, Dice, Current Wind)
@@ -725,7 +802,8 @@ fun GamePlayScreen(
                             .align(Alignment.BottomCenter)
                             .padding(bottom = if (isLandscape) 2.dp else 12.dp),
                         lastDiscard = lastDiscard,
-                        isLastOfPlayer = discarderIdx == 0
+                        isLastOfPlayer = discarderIdx == 0,
+                        isTileWild = isTileWild
                     )
 
                     // TOP AI Discards
@@ -735,7 +813,8 @@ fun GamePlayScreen(
                             .align(Alignment.TopCenter)
                             .padding(top = if (isLandscape) 2.dp else 12.dp),
                         lastDiscard = lastDiscard,
-                        isLastOfPlayer = discarderIdx == 2
+                        isLastOfPlayer = discarderIdx == 2,
+                        isTileWild = isTileWild
                     )
 
                     // LEFT AI Discards
@@ -746,7 +825,8 @@ fun GamePlayScreen(
                             .padding(start = if (isLandscape) 10.dp else 28.dp),
                         lastDiscard = lastDiscard,
                         isLastOfPlayer = discarderIdx == 3,
-                        vertical = true
+                        vertical = true,
+                        isTileWild = isTileWild
                     )
 
                     // RIGHT AI Discards
@@ -757,7 +837,8 @@ fun GamePlayScreen(
                             .padding(end = if (isLandscape) 10.dp else 28.dp),
                         lastDiscard = lastDiscard,
                         isLastOfPlayer = discarderIdx == 1,
-                        vertical = true
+                        vertical = true,
+                        isTileWild = isTileWild
                     )
                 }
 
@@ -977,7 +1058,7 @@ fun GamePlayScreen(
                     verticalAlignment = Alignment.Bottom
                 ) {
                     // 1. Revealed Melds
-                    MeldListMe(playerMe.declaredMelds)
+                    MeldListMe(playerMe.declaredMelds, isTileWild)
 
                     if (playerMe.declaredMelds.isNotEmpty() && playerMe.hand.isNotEmpty()) {
                         Spacer(modifier = Modifier.width(if (useMediumSize) 4.dp else 8.dp))
@@ -994,6 +1075,7 @@ fun GamePlayScreen(
                                 isSelected = selectedTile?.id == tile.id,
                                 smallSize = false,
                                 mediumSize = useMediumSize,
+                                isWild = isTileWild(tile),
                                 onClick = {
                                     SoundManager.playClick()
                                     onTileClick(tile)
@@ -1010,6 +1092,7 @@ fun GamePlayScreen(
                             isSelected = selectedTile?.id == playerMe.hasDrawnTile.id,
                             smallSize = false,
                             mediumSize = useMediumSize,
+                            isWild = isTileWild(playerMe.hasDrawnTile),
                             onClick = {
                                 SoundManager.playClick()
                                 onDrawnTileClick()
@@ -1094,14 +1177,14 @@ fun GamePlayScreen(
                                 horizontalArrangement = Arrangement.Center
                             ) {
                                 roundOutcome.winningHand.forEach { wt ->
-                                    TileView(tile = wt, smallSize = true)
+                                    TileView(tile = wt, smallSize = true, isWild = isTileWild(wt))
                                     Spacer(modifier = Modifier.width(1.dp))
                                 }
                                 if (roundOutcome.winningTile != null) {
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text("+", color = MahjongGold, fontWeight = FontWeight.Bold)
                                     Spacer(modifier = Modifier.width(6.dp))
-                                    TileView(tile = roundOutcome.winningTile, smallSize = true, isSelected = true)
+                                    TileView(tile = roundOutcome.winningTile, smallSize = true, isSelected = true, isWild = isTileWild(roundOutcome.winningTile))
                                 }
                             }
                         }
@@ -1231,7 +1314,7 @@ fun DiceView(number: Int, rolling: Boolean) {
 
 // Melds layouts for opponents
 @Composable
-fun MeldListRow(melds: List<MahjongMeld>) {
+fun MeldListRow(melds: List<MahjongMeld>, isTileWild: (MahjongTile) -> Boolean = { false }) {
     if (melds.isEmpty()) return
     Row(
         modifier = Modifier.padding(top = 2.dp),
@@ -1246,7 +1329,7 @@ fun MeldListRow(melds: List<MahjongMeld>) {
             ) {
                 val tiles = meld.tiles.take(3) // Represent as triplet visually
                 tiles.forEach { tile ->
-                    TileView(tile = tile, smallSize = true, faceDown = meld is MahjongMeld.Gang && meld.isAn)
+                    TileView(tile = tile, smallSize = true, faceDown = meld is MahjongMeld.Gang && meld.isAn, isWild = isTileWild(tile))
                 }
             }
         }
@@ -1255,7 +1338,7 @@ fun MeldListRow(melds: List<MahjongMeld>) {
 
 // User melds list shown on the left of their hand
 @Composable
-fun MeldListMe(melds: List<MahjongMeld>) {
+fun MeldListMe(melds: List<MahjongMeld>, isTileWild: (MahjongTile) -> Boolean = { false }) {
     if (melds.isEmpty()) return
     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         melds.forEach { meld ->
@@ -1268,7 +1351,7 @@ fun MeldListMe(melds: List<MahjongMeld>) {
             ) {
                 val isAn = meld is MahjongMeld.Gang && meld.isAn
                 meld.tiles.take(3).forEach { tile ->
-                    TileView(tile = tile, smallSize = true, faceDown = isAn)
+                    TileView(tile = tile, smallSize = true, faceDown = isAn, isWild = isTileWild(tile))
                 }
             }
         }
@@ -1282,7 +1365,8 @@ fun RowOfDiscards(
     modifier: Modifier = Modifier,
     lastDiscard: MahjongTile?,
     isLastOfPlayer: Boolean,
-    vertical: Boolean = false
+    vertical: Boolean = false,
+    isTileWild: (MahjongTile) -> Boolean = { false }
 ) {
     if (discards.isEmpty()) return
 
@@ -1312,6 +1396,7 @@ fun RowOfDiscards(
                     TileView(
                         tile = tile,
                         smallSize = true,
+                        isWild = isTileWild(tile),
                         modifier = borderMod
                     )
                 }
